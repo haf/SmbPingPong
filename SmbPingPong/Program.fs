@@ -19,7 +19,7 @@ let inline spawn fn = Thread(ThreadStart fn).Start()
 let pong directory =
   use context = new Context()
   use server  = rep context
-  printfn "ping: binding to %s" "tcp://*:5556"
+  printfn "pong: binding to %s" "tcp://*:5556"
   bind server "tcp://*:5556"
 
   let rec loop () =

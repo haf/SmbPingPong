@@ -92,10 +92,33 @@ let ping connectTo dir =
 
   loop 1u
 
+/// When the frontend is a ZMQ_XSUB socket, and the backend is a ZMQ_XPUB socket, the proxy
+/// shall act as a message forwarder that collects messages from a set of publishers and
+/// forwards these to a set of subscribers. This may be used to bridge networks transports,
+/// e.g. read on tcp:// and forward on pgm://.
+let proxy () =
+  use context = new Context()
+  use toBackendSub = Context.xsub context
+  Socket.bind toBackendSub "tcp://*:5555"
+
+  use toBackendPub = Context.xpub context
+  Socket.bind toBackendPub "tcp://*:5556"
+
+  spawn (fun _ -> fszmq.Proxying.proxy toBackendSub toBackendPub None)
+
+  use toFrontendSub = Context.xsub context
+  Socket.bind toFrontendSub "tcp://*:6555"
+
+  use toFrontendPub = Context.xpub context
+  Socket.bind toFrontendPub "tcp://*:6556"
+
+  fszmq.Proxying.proxy toFrontendSub toFrontendPub None
+
 type Args =
-  | [<Mandatory>] Directory of string
-  | [<PrintLabels>] Ping_Mode of other:string
+  | Directory of string
+  | [<PrintLabels>] Ping_Mode of connectTo:string
   | Pong_Mode
+  | Proxy_Mode
 with
   interface IArgParserTemplate with
     member s.Usage =
@@ -103,21 +126,36 @@ with
       | Directory _ -> "Where to write files to in Ping mode"
       | Ping_Mode _ -> "Client/sender that writes files and then does req-repl to the server"
       | Pong_Mode -> "Server/receiver that tries to read the file from disk"
+      | Proxy_Mode -> "Forwards from client/ping to server/pong. Client send to :5555, read :6556. Server read :5556, send to :6556."
+      
+let (|PingMode|_|) (args : ParseResults<Args>) : string option =
+  args.TryGetResult <@ Ping_Mode @>
+
+let (|PongMode|_|) (args : ParseResults<Args>) : Args option =
+  args.TryGetResult <@ Pong_Mode @>
+
+let (|ProxyMode|_|) (args : ParseResults<Args>) : Args option =
+  args.TryGetResult <@ Proxy_Mode @>
 
 [<EntryPoint>]
 let main argv =
   let parser = ArgumentParser.Create<Args>()
   let parsed = parser.Parse argv
-  let dir = parsed.GetResult <@ Directory @>
-  let pingMode = parsed.TryGetResult <@ Ping_Mode @>
-
   printfn "libzmq version: %A, running ping.exe version %s" ZMQ.version (App.getVersion ())
 
-  match pingMode with
-  | Some pongBinding ->
-    ping pongBinding dir
+  match parsed with
+  | PingMode connectTo ->
+    let dir = parsed.GetResult <@ Directory @>
+    ping connectTo dir
+
+  | PongMode _ ->
+    let dir = parsed.GetResult <@ Directory @>
+    pong dir
+
+  | ProxyMode _ ->
+    proxy ()
 
   | _ ->
-    pong dir
+    eprintfn "%s" (parser.Usage())
 
   0

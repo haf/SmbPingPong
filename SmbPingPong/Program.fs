@@ -12,7 +12,10 @@ open fszmq.Context
 open fszmq.Socket
   
 let inline encode value = value |> string |> Encoding.UTF8.GetBytes
-let inline decode value = Encoding.UTF8.GetString value
+let inline decode value =
+  match value with
+  | null -> ""
+  | _ -> Encoding.UTF8.GetString value
 let inline spawn fn = Thread(ThreadStart fn).Start()
 
 // mono  --debug ./SmbPingPong.exe --directory $(pwd) --pong-mode
@@ -38,7 +41,7 @@ let pong directory =
         loop ()
 
     | _ ->
-      "goodbye"B |>> server
+      "BYE"B |>> server
 
   loop ()
 
@@ -71,14 +74,21 @@ let ping connectTo dir =
     fileName |> encode |> send client
     printfn "(%i) sent: %s with contents %s" i filePath contents
 
-    match recv client with
+    match (recv >> decode) client with
     | null ->
       ()
 
-    | bs ->
-      let reply = decode bs
-      printfn "(%i) got: %s" i reply
+    | "ACK" ->
+      printfn "(%i) got ACK" i
       loop (i + 1u)
+
+    | "NACK" ->
+      printfn "(%i) got NACK - REPRO, yey!" i
+      loop (i + 1u)
+
+    | "BYE"
+    | _ ->
+      printfn "Server says bye, exiting..."
 
   loop 1u
 

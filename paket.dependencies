@@ -3,3 +3,4 @@ source https://www.nuget.org/api/v2
 nuget fszmq
 nuget Argu
 nuget FSharp.Core
+github haf/YoLo YoLo.fs

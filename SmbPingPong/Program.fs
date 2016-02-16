@@ -1,4 +1,4 @@
-﻿module Program
+﻿module SmbPingPong.Program
 
 open System
 open System.Text
@@ -19,6 +19,7 @@ let inline spawn fn = Thread(ThreadStart fn).Start()
 let pong directory =
   use context = new Context()
   use server  = rep context
+  printfn "ping: binding to %s" "tcp://*:5556"
   bind server "tcp://*:5556"
 
   let rec loop () =
@@ -30,7 +31,7 @@ let pong directory =
       if contents.Length = 0 then
         eprintfn "File contents are empty at path %s" path
         "NACK"B |>> server
-        loop ()
+
       else
         printfn "File contents length: %i" contents.Length
         "ACK"B |>> server
@@ -60,6 +61,7 @@ let createFile filePath =
 let ping connectTo dir =
   use context = new Context()
   use client  = req context
+  printfn "ping: connecting to %s" connectTo
   connectTo |> connect client
 
   let rec loop i =
@@ -89,7 +91,7 @@ with
     member s.Usage =
       match s with
       | Directory _ -> "Where to write files to in Ping mode"
-      | Ping_Mode _ -> "Runs Rutta in Shipper/PUB mode (send Messages from a node to proxy)"
+      | Ping_Mode _ -> "Client/sender that writes files and then does req-repl to the server"
       | Pong_Mode -> "Server/receiver that tries to read the file from disk"
 
 [<EntryPoint>]
@@ -99,7 +101,7 @@ let main argv =
   let dir = parsed.GetResult <@ Directory @>
   let pingMode = parsed.TryGetResult <@ Ping_Mode @>
 
-  printfn "libzmq version: %A" ZMQ.version
+  printfn "libzmq version: %A, running ping.exe version %s" ZMQ.version (App.getVersion ())
 
   match pingMode with
   | Some pongBinding ->

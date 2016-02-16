@@ -1,7 +1,6 @@
 require 'bundler/setup'
 
 require 'albacore'
-# require 'albacore/tasks/release'
 require 'albacore/tasks/versionizer'
 require 'albacore/ext/teamcity'
 
@@ -28,12 +27,16 @@ build :quick_compile do |b|
   b.sln     = 'SmbPingPong/SmbPingPong.sln'
 end
 
+task :yolo do
+   sh %{ruby -pi.bak -e "gsub(/module internal YoLo/, 'module internal SmbPingPong.YoLo')" paket-files/haf/YoLo/YoLo.fs}
+end
+
 task :paket_bootstrap do
-system 'tools/paket.bootstrapper.exe', clr_command: true unless   File.exists? 'tools/paket.exe'
+  system 'tools/paket.bootstrapper.exe', clr_command: true unless   File.exists? 'tools/paket.exe'
 end
 
 desc 'restore all nugets as per the packages.config files'
-task :restore => :paket_bootstrap do
+task :restore => [:paket_bootstrap, :yolo] do
   system 'tools/paket.exe', 'restore', clr_command: true
 end
 

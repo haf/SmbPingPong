@@ -5,3 +5,7 @@ NUGET
     FSharp.Core (4.0.0.1)
     fszmq (12.1.1)
       FSharp.Core
+GITHUB
+  remote: haf/YoLo
+  specs:
+    YoLo.fs (9e3a94ff589419c438e5f3ab504b5ae3ce1fcdae)

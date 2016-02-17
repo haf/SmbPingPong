@@ -11,10 +11,10 @@ Albacore::Tasks::Versionizer.new :versioning
 desc 'create assembly infos'
 asmver_files :assembly_info do |a|
   a.files = FileList['**/*proj'] # optional, will find all projects recursively by default
-  a.attributes assembly_description: 'TODO',
+  a.attributes assembly_description: 'This assembly/executable is for testing only',
                assembly_configuration: Configuration,
-               assembly_company: 'Foretag AB',
-               assembly_copyright: "(c) 2016 by John Doe",
+               assembly_company: 'RaySearchlabs',
+               assembly_copyright: "(c) 2016 by Henrik Feldt",
                assembly_version: ENV['LONG_VERSION'],
                assembly_file_version: ENV['LONG_VERSION'],
                assembly_informational_version: ENV['BUILD_VERSION']

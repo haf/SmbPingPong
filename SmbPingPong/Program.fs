@@ -24,11 +24,11 @@ let pong connectToSub connectToPub directory =
   use subscriber = sub context
   Socket.subscribe subscriber [""B]
   printfn "pong: connecting subscriber to %s" connectToSub
-  bind subscriber connectToSub
+  connect subscriber connectToSub
 
   use publisher = pub context
   printfn "pong: connecting publisher to %s" connectToPub
-  bind publisher connectToPub
+  connect publisher connectToPub
   
   let rec loop () =
     match subscriber |> recv |> decode with
@@ -69,9 +69,9 @@ let createFile filePath =
 let ping connectSub connectPub dir =
   use context = new Context()
   use subscriber = sub context
+  Socket.subscribe subscriber [""B]
   printfn "ping: connecting subscriber to %s" connectSub
   connectSub |> connect subscriber
-  Socket.subscribe subscriber [""B]
   
   use publisher = pub context
   printfn "ping: connecting publisher to %s" connectPub
@@ -106,22 +106,34 @@ let ping connectSub connectPub dir =
 /// shall act as a message forwarder that collects messages from a set of publishers and
 /// forwards these to a set of subscribers. This may be used to bridge networks transports,
 /// e.g. read on tcp:// and forward on pgm://.
+///
+/// ```
+///  ping   | connect ----> bind toBackendSub tcp://XX:5555  |  proxy  | bind toBackendPub tcp://XX:5556  <---- connect |  pong
+///         | connect ----> bind toFrontendPub tcp://XX:6556 |         | bind toFrontendSub tcp://XX:6555 <---- connect |
+/// ```
 let proxy () =
   use context = new Context()
   use toBackendSub = Context.xsub context
-  Socket.bind toBackendSub "tcp://*:5555"
-
-  use toBackendPub = Context.xpub context
-  Socket.bind toBackendPub "tcp://*:5556"
-
-  spawn (fun _ -> fszmq.Proxying.proxy toBackendSub toBackendPub None)
+  printfn "proxy: to-backend subscriber to %s" "tcp://*:5555"
+  bind toBackendSub "tcp://*:5555"
 
   use toFrontendSub = Context.xsub context
-  Socket.bind toFrontendSub "tcp://*:6555"
+  printfn "proxy: to-frontend subscriber to %s" "tcp://*:6555"
+  bind toFrontendSub "tcp://*:6555"
+
+  use toBackendPub = Context.xpub context
+  printfn "proxy: to-backend publisher to %s" "tcp://*:5556"
+  bind toBackendPub "tcp://*:5556"
 
   use toFrontendPub = Context.xpub context
-  Socket.bind toFrontendPub "tcp://*:6556"
+  printfn "proxy: to-frontend publisher to %s" "tcp://*:6556"
+  bind toFrontendPub "tcp://*:6556"
 
+  spawn <| fun _ ->
+    printfn "%s" "spawning to-backend proxy"
+    fszmq.Proxying.proxy toBackendSub toBackendPub None
+
+  printfn "%s" "spawning to-frontend proxy"
   fszmq.Proxying.proxy toFrontendSub toFrontendPub None
 
 type Args =

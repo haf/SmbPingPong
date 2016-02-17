@@ -18,11 +18,10 @@ let inline decode value =
   | _ -> Encoding.UTF8.GetString value
 let inline spawn fn = Thread(ThreadStart fn).Start()
 
-// mono  --debug ./SmbPingPong.exe --directory $(pwd) --pong-mode tcp://somehost:5556
 let pong connectToSub connectToPub directory =
   use context = new Context()
   use subscriber = sub context
-  Socket.subscribe subscriber [""B]
+  subscribe subscriber [""B]
   printfn "pong: connecting subscriber to %s" connectToSub
   connect subscriber connectToSub
 
@@ -46,6 +45,7 @@ let pong connectToSub connectToPub directory =
         loop ()
 
     | _ ->
+      printfn "%s" "exiting"
       "BYE"B |>> publisher
 
   loop ()
@@ -65,17 +65,16 @@ let createFile filePath =
   sw.WriteLine contents
   contents
 
-// mono  --debug ./SmbPingPong.exe --directory $(pwd) --ping-mode tcp://127.0.0.1:5556
-let ping connectSub connectPub dir =
+let ping read write dir =
   use context = new Context()
   use subscriber = sub context
   Socket.subscribe subscriber [""B]
-  printfn "ping: connecting subscriber to %s" connectSub
-  connectSub |> connect subscriber
-  
+  printfn "ping: connecting subscriber to %s" read
+  read |> connect subscriber
+
   use publisher = pub context
-  printfn "ping: connecting publisher to %s" connectPub
-  connectPub |> connect publisher
+  printfn "ping: connecting publisher to %s" write
+  write |> connect publisher
 
   let rec loop i =
     let fileName = createFileName ()
@@ -112,29 +111,33 @@ let ping connectSub connectPub dir =
 ///         | connect ----> bind toFrontendPub tcp://XX:6556 |         | bind toFrontendSub tcp://XX:6555 <---- connect |
 /// ```
 let proxy () =
+  printfn """use proxy:
+  ping-mode takes the read-socket and then the write-socket
+  (frontend) --ping-mode tcp://127.0.0.1:6556 tcp://127.0.0.1:5555
+
+  ping-mode takes the read-socket and then the write-socket
+  (backend) --pong-mode tcp://127.0.0.1:5556 tcp://127.0.0.1:6555
+"""
+
   use context = new Context()
-  use toBackendSub = Context.xsub context
-  printfn "proxy: to-backend subscriber to %s" "tcp://*:5555"
-  bind toBackendSub "tcp://*:5555"
+  use frontWrite = Context.xsub context
+  bind frontWrite "tcp://*:5555"
 
-  use toFrontendSub = Context.xsub context
-  printfn "proxy: to-frontend subscriber to %s" "tcp://*:6555"
-  bind toFrontendSub "tcp://*:6555"
+  use backWrite = Context.xsub context
+  bind backWrite "tcp://*:6555"
 
-  use toBackendPub = Context.xpub context
-  printfn "proxy: to-backend publisher to %s" "tcp://*:5556"
-  bind toBackendPub "tcp://*:5556"
+  use backRead = Context.xpub context
+  bind backRead "tcp://*:5556"
 
-  use toFrontendPub = Context.xpub context
-  printfn "proxy: to-frontend publisher to %s" "tcp://*:6556"
-  bind toFrontendPub "tcp://*:6556"
+  use frontRead = Context.xpub context
+  bind frontRead "tcp://*:6556"
 
-  spawn <| fun _ ->
+  spawn <| fun _ -> 
     printfn "%s" "spawning to-backend proxy"
-    fszmq.Proxying.proxy toBackendSub toBackendPub None
+    fszmq.Proxying.proxy frontWrite backRead None
 
   printfn "%s" "spawning to-frontend proxy"
-  fszmq.Proxying.proxy toFrontendSub toFrontendPub None
+  fszmq.Proxying.proxy backWrite frontRead None
 
 type Args =
   | Directory of string
@@ -166,13 +169,13 @@ let main argv =
   printfn "libzmq version: %A, running ping.exe version %s" ZMQ.version (App.getVersion ())
 
   match parsed with
-  | PingMode (connectSub, connectPub) ->
+  | PingMode (read, write) ->
     let dir = parsed.GetResult <@ Directory @>
-    ping connectSub connectPub dir
+    ping read write dir
 
-  | PongMode (connectSub, connectPub) ->
+  | PongMode (read, write) ->
     let dir = parsed.GetResult <@ Directory @>
-    pong connectSub connectPub dir
+    pong read write dir
 
   | ProxyMode _ ->
     proxy ()

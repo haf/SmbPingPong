@@ -37,7 +37,7 @@ end
 
 desc 'restore all nugets as per the packages.config files'
 task :restore => [:paket_bootstrap, :yolo] do
-  system 'tools/paket.exe', 'restore', clr_command: true
+  system 'tools/paket.exe', 'install', clr_command: true
 end
 
 desc 'Perform full build'

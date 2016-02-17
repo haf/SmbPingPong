@@ -18,30 +18,35 @@ let inline decode value =
   | _ -> Encoding.UTF8.GetString value
 let inline spawn fn = Thread(ThreadStart fn).Start()
 
-// mono  --debug ./SmbPingPong.exe --directory $(pwd) --pong-mode
-let pong directory =
+// mono  --debug ./SmbPingPong.exe --directory $(pwd) --pong-mode tcp://somehost:5556
+let pong connectToSub connectToPub directory =
   use context = new Context()
-  use server  = rep context
-  printfn "pong: binding to %s" "tcp://*:5556"
-  bind server "tcp://*:5556"
+  use subscriber = sub context
+  Socket.subscribe subscriber [""B]
+  printfn "pong: connecting subscriber to %s" connectToSub
+  bind subscriber connectToSub
 
+  use publisher = pub context
+  printfn "pong: connecting publisher to %s" connectToPub
+  bind publisher connectToPub
+  
   let rec loop () =
-    match server |> recv |> decode with
+    match subscriber |> recv |> decode with
     | fileName when fileName.EndsWith ".txt" ->
       let path = Path.Combine (directory, fileName)
       let contents = File.ReadAllText path
 
       if contents.Length = 0 then
         eprintfn "File contents are empty at path %s" path
-        "NACK"B |>> server
+        "NACK"B |>> publisher
 
       else
         printfn "File contents length: %i" contents.Length
-        "ACK"B |>> server
+        "ACK"B |>> publisher
         loop ()
 
     | _ ->
-      "BYE"B |>> server
+      "BYE"B |>> publisher
 
   loop ()
 
@@ -61,20 +66,25 @@ let createFile filePath =
   contents
 
 // mono  --debug ./SmbPingPong.exe --directory $(pwd) --ping-mode tcp://127.0.0.1:5556
-let ping connectTo dir =
+let ping connectSub connectPub dir =
   use context = new Context()
-  use client  = req context
-  printfn "ping: connecting to %s" connectTo
-  connectTo |> connect client
+  use subscriber = sub context
+  printfn "ping: connecting subscriber to %s" connectSub
+  connectSub |> connect subscriber
+  Socket.subscribe subscriber [""B]
+  
+  use publisher = pub context
+  printfn "ping: connecting publisher to %s" connectPub
+  connectPub |> connect publisher
 
   let rec loop i =
     let fileName = createFileName ()
     let filePath = Path.Combine (dir, fileName)
     let contents = createFile filePath
-    fileName |> encode |> send client
+    fileName |> encode |> send publisher
     printfn "(%i) sent: %s with contents %s" i filePath contents
 
-    match (recv >> decode) client with
+    match (recv >> decode) subscriber with
     | null ->
       ()
 
@@ -116,8 +126,8 @@ let proxy () =
 
 type Args =
   | Directory of string
-  | [<PrintLabels>] Ping_Mode of connectTo:string
-  | Pong_Mode
+  | [<PrintLabels>] Ping_Mode of connectSub:string * connectPub:string
+  | [<PrintLabels>] Pong_Mode of connectSub:string * connectPub:string
   | Proxy_Mode
 with
   interface IArgParserTemplate with
@@ -125,13 +135,13 @@ with
       match s with
       | Directory _ -> "Where to write files to in Ping mode"
       | Ping_Mode _ -> "Client/sender that writes files and then does req-repl to the server"
-      | Pong_Mode -> "Server/receiver that tries to read the file from disk"
+      | Pong_Mode _ -> "Server/receiver that tries to read the file from disk"
       | Proxy_Mode -> "Forwards from client/ping to server/pong. Client send to :5555, read :6556. Server read :5556, send to :6556."
       
-let (|PingMode|_|) (args : ParseResults<Args>) : string option =
+let (|PingMode|_|) (args : ParseResults<Args>) : (string * string) option =
   args.TryGetResult <@ Ping_Mode @>
 
-let (|PongMode|_|) (args : ParseResults<Args>) : Args option =
+let (|PongMode|_|) (args : ParseResults<Args>) : (string * string) option =
   args.TryGetResult <@ Pong_Mode @>
 
 let (|ProxyMode|_|) (args : ParseResults<Args>) : Args option =
@@ -144,13 +154,13 @@ let main argv =
   printfn "libzmq version: %A, running ping.exe version %s" ZMQ.version (App.getVersion ())
 
   match parsed with
-  | PingMode connectTo ->
+  | PingMode (connectSub, connectPub) ->
     let dir = parsed.GetResult <@ Directory @>
-    ping connectTo dir
+    ping connectSub connectPub dir
 
-  | PongMode _ ->
+  | PongMode (connectSub, connectPub) ->
     let dir = parsed.GetResult <@ Directory @>
-    pong dir
+    pong connectSub connectPub dir
 
   | ProxyMode _ ->
     proxy ()

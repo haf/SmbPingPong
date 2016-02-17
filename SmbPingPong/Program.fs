@@ -92,8 +92,7 @@ let ping read write dir =
       loop (i + 1u)
 
     | "NACK" ->
-      printfn "(%i) got NACK - REPRO, yey!" i
-      loop (i + 1u)
+      printfn "(%i) got NACK - REPRO!!!" i
 
     | "BYE"
     | _ ->

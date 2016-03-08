@@ -17,6 +17,16 @@ let inline decode value =
   | null -> ""
   | _ -> Encoding.UTF8.GetString value
 let inline spawn fn = Thread(ThreadStart fn).Start()
+let isFalse msg = function
+  | false -> ()
+  | _ -> failwith msg
+let isTrue msg = function
+  | true -> ()
+  | _ -> failwith msg
+
+// code that tries to reproduce https://technet.microsoft.com/en-us/library/ff686200%28v=WS.10%29.aspx
+// and specifically the file negative acqknowledgement cache causing errors
+// in our app
 
 let pong connectToSub connectToPub directory =
   use context = new Context()
@@ -29,26 +39,42 @@ let pong connectToSub connectToPub directory =
   printfn "pong: connecting publisher to %s" connectToPub
   connect publisher connectToPub
   
-  let rec loop () =
+  let rec initial () =
     match subscriber |> recv |> decode with
-    | fileName when fileName.EndsWith ".txt" ->
+    | msg when msg.StartsWith "EXPECT " && msg.EndsWith ".txt" ->
+      let fileName = msg.Substring("EXPECT ".Length)
       let path = Path.Combine (directory, fileName)
-      let contents = File.ReadAllText path
 
-      if contents.Length = 0 then
-        eprintfn "File contents are empty at path %s" path
-        "NACK"B |>> publisher
+      for i in 1..100 do
+        File.Exists path |> isFalse "expected path not to exist"
 
-      else
-        printfn "File contents length: %i" contents.Length
-        "ACK"B |>> publisher
-        loop ()
+      "ACK EXPECT" |> encode |> send publisher
+      pending path
 
-    | _ ->
-      printfn "%s" "exiting"
+    | msg ->
+      printfn "Got '%s'. exiting" msg
       "BYE"B |>> publisher
 
-  loop ()
+  and pending filePath =
+    match subscriber |> recv |> decode with
+    | s when s.StartsWith "WROTE " ->
+      let exists = File.Exists filePath
+      let contents = File.ReadAllText filePath
+
+      if contents.Length = 0 || not exists then
+        eprintfn "File contents are '%s' at path '%s' or exists is %b. Message is: %s" contents filePath exists s
+        "NACK WROTE"B |>> publisher
+
+      else
+        printfn "WROTE %s, contents length: %i" filePath contents.Length
+        "ACK WROTE"B |>> publisher
+        initial ()
+
+    | msg ->
+      printfn "Got '%s'. exiting" msg
+      "BYE"B |>> publisher
+
+  initial ()
 
 let createFileName () =
   Guid.NewGuid().ToString().Replace("-", "").ToLowerInvariant() + ".txt"
@@ -76,29 +102,48 @@ let ping read write dir =
   printfn "ping: connecting publisher to %s" write
   write |> connect publisher
 
-  let rec loop i =
+  let rec expecting i =
     let fileName = createFileName ()
     let filePath = Path.Combine (dir, fileName)
-    let contents = createFile filePath
-    fileName |> encode |> send publisher
-    printfn "(%i) sent: %s with contents %s" i filePath contents
+    let msg = sprintf "EXPECT %s" fileName 
+    msg |> encode |> send publisher
+    printfn "(%i) %s" i msg
 
     match (recv >> decode) subscriber with
     | null ->
       ()
 
-    | "ACK" ->
-      printfn "(%i) got ACK" i
-      loop (i + 1u)
+    | "ACK EXPECT" ->
+      printfn "(%i) got ACK EXPECT" i
+      writing fileName filePath (i + 1u)
 
-    | "NACK" ->
+    | "NACK EXPECT" ->
       printfn "(%i) got NACK - REPRO!!!" i
 
-    | "BYE"
-    | _ ->
-      printfn "Server says bye, exiting..."
+    | other ->
+      printfn "Server says %s, exiting..." other
 
-  loop 1u
+  and writing fileName filePath i =
+    let contents = createFile filePath
+    let msg = sprintf "WROTE %s" fileName 
+    msg |> encode |> send publisher
+    printfn "(%i) %s" i msg
+    
+    match (recv >> decode) subscriber with
+    | null ->
+      ()
+
+    | "ACK WROTE" ->
+      printfn "(%i) got ACK WROTE" i
+      expecting (i + 1u)
+
+    | "NACK WROTE" ->
+      printfn "(%i) got NACK - REPRO!!!" i
+
+    | other ->
+      printfn "Server says %s, exiting..." other
+
+  expecting 1u
 
 /// When the frontend is a ZMQ_XSUB socket, and the backend is a ZMQ_XPUB socket, the proxy
 /// shall act as a message forwarder that collects messages from a set of publishers and

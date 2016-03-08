@@ -47,6 +47,7 @@
     <DefineConstants>
     </DefineConstants>
     <AssemblyName>ping</AssemblyName>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft SDKs\F#\3.1\Framework\v4.0\Microsoft.FSharp.Targets" />
   <ItemGroup>
